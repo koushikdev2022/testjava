@@ -1,0 +1,55 @@
+import java.util.Arrays;
+import java.util.List;
+
+public class MessageObfuscator {
+    public static void main(String[] args) {
+        String input = "The purpose of this exercise is to test logical thinking.";
+        System.out.println("Original: " + input);
+        System.out.println("Hidden:   " + hideMessage(input));
+    }
+
+    public static String hideMessage(String message) {
+        // Rule 3: Common small words to ignore
+        List<String> smallWords = Arrays.asList("the", "of", "is", "to", "a", "an", "in", "it", "and");
+        
+        String[] words = message.split(" ");
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < words.length; i++) {
+            String currentWord = words[i];
+            
+            // Extract punctuation at the end (e.g., the period in "thinking.")
+            String cleanWord = currentWord.replaceAll("[^a-zA-Z]", "");
+            String punctuation = currentWord.replace(cleanWord, "");
+            
+            String processedWord = cleanWord;
+
+            // Rule 1: Change every 3rd word into ***
+            if ((i + 1) % 3 == 0) {
+                processedWord = "***";
+                punctuation = ""; // Drop the punctuation for the hidden word
+            }
+            // Rule 3: Do nothing to common small words
+            else if (smallWords.contains(cleanWord.toLowerCase())) {
+                processedWord = cleanWord;
+            }
+            // Rule 2: For words with an even number of letters, swap first and last
+            else if (cleanWord.length() % 2 == 0 && cleanWord.length() > 1) {
+                char firstLetter = cleanWord.charAt(0);
+                char lastLetter = cleanWord.charAt(cleanWord.length() - 1);
+                String middle = cleanWord.substring(1, cleanWord.length() - 1);
+                
+                processedWord = lastLetter + middle + firstLetter;
+            }
+
+            // Reattach punctuation and add to result
+            result.append(processedWord).append(punctuation);
+            
+            if (i < words.length - 1) {
+                result.append(" ");
+            }
+        }
+
+        return result.toString();
+    }
+}
