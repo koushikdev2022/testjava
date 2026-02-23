@@ -1,0 +1,122 @@
+Task 2 – 30 minutes
+You get live temperature readings from 10 sensors. Each sensor sends a reading every
+minute.
+Make a program that:
+1. Takes incoming readings in this format: Sensor ID, time, temperature.
+2. For each sensor, keeps the average of its last 5 readings.
+3. Marks a sensor as unhealthy if:
+o Its average temperature is below 10 or above 90.
+o It misses more than 2 readings in any 5-minute period.
+
+
+import java.util.*;
+
+public class TemperatureMonitor {
+
+    // Represents the internal state of a single sensor
+    static class SensorState {
+        private final String sensorId;
+        private final Queue<Double> last5Temperatures = new LinkedList<>();
+        private final List<Long> recentTimestamps = new ArrayList<>();
+
+        public SensorState(String sensorId) {
+            this.sensorId = sensorId;
+        }
+
+        public void addReading(long timestampMinutes, double temperature) {
+            // 1. Manage the 5-reading rolling average window
+            if (last5Temperatures.size() == 5) {
+                last5Temperatures.poll(); // Remove oldest temperature
+            }
+            last5Temperatures.offer(temperature);
+
+            // 2. Manage the 5-minute time window for missing data
+            recentTimestamps.add(timestampMinutes);
+            // Clean up old timestamps to prevent memory leaks over time
+            recentTimestamps.removeIf(t -> t < timestampMinutes - 5);
+        }
+
+        public boolean isUnhealthy(long currentTimeMinutes) {
+            // Condition 1: Average temperature is below 10 or above 90
+            // (Assuming we only check the average if we actually have 5 readings)
+            if (last5Temperatures.size() == 5) {
+                double sum = 0;
+                for (double temp : last5Temperatures) {
+                    sum += temp;
+                }
+                double average = sum / 5.0;
+                if (average < 10 || average > 90) {
+                    return true;
+                }
+            }
+
+            // Condition 2: Missed more than 2 readings in any 5-minute period.
+            // A 5-minute period expects 5 readings. If we missed more than 2, 
+            // it means we have 2 or fewer valid readings in the last 5 minutes.
+            long validReadingsCount = recentTimestamps.stream()
+                    .filter(t -> t >= currentTimeMinutes - 5)
+                    .count();
+
+            if (validReadingsCount <= 2) {
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    // In-memory database of all sensors
+    private final Map<String, SensorState> sensorRegistry = new HashMap<>();
+
+    /**
+     * Called whenever a new reading arrives via API, Kafka, MQTT, etc.
+     */
+    public void processIncomingReading(String sensorId, long timeMinutes, double temperature) {
+        sensorRegistry.putIfAbsent(sensorId, new SensorState(sensorId));
+        sensorRegistry.get(sensorId).addReading(timeMinutes, temperature);
+    }
+
+    /**
+     * Called by a Scheduled thread (e.g., @Scheduled in Spring Boot) every minute 
+     * to evaluate the health of all sensors against the current system time.
+     */
+    public List<String> getUnhealthySensors(long currentTimeMinutes) {
+        List<String> unhealthySensorIds = new ArrayList<>();
+        
+        for (Map.Entry<String, SensorState> entry : sensorRegistry.entrySet()) {
+            if (entry.getValue().isUnhealthy(currentTimeMinutes)) {
+                unhealthySensorIds.add(entry.getKey());
+            }
+        }
+        
+        return unhealthySensorIds;
+    }
+
+    // --- Quick Test Execution ---
+    public static void main(String[] args) {
+        TemperatureMonitor monitor = new TemperatureMonitor();
+        long currentMinute = 100; // Arbitrary start time
+
+        // Simulating a healthy sensor
+        monitor.processIncomingReading("Sensor_1", currentMinute, 20.0);
+        monitor.processIncomingReading("Sensor_1", currentMinute + 1, 22.0);
+        monitor.processIncomingReading("Sensor_1", currentMinute + 2, 21.0);
+        
+        // Simulating a sensor with extreme temperatures (Average > 90)
+        monitor.processIncomingReading("Sensor_2", currentMinute, 95.0);
+        monitor.processIncomingReading("Sensor_2", currentMinute + 1, 96.0);
+        monitor.processIncomingReading("Sensor_2", currentMinute + 2, 98.0);
+        monitor.processIncomingReading("Sensor_2", currentMinute + 3, 91.0);
+        monitor.processIncomingReading("Sensor_2", currentMinute + 4, 95.0);
+
+        System.out.println("Unhealthy at minute " + (currentMinute + 4) + ": " 
+                + monitor.getUnhealthySensors(currentMinute + 4)); 
+        // Expected: Sensor_2 (Temp too high)
+
+        // Simulating time passing to trigger a "missing data" fault on Sensor_1
+        long futureMinute = currentMinute + 7;
+        System.out.println("Unhealthy at minute " + futureMinute + ": " 
+                + monitor.getUnhealthySensors(futureMinute));
+        // Expected: Sensor_1 AND Sensor_2 (Both have gone silent/missed > 2 readings in the last 5 mins)
+    }
+}
